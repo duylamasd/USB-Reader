@@ -6,6 +6,7 @@
 #define FILE_SHARE_VALID_FLAGS (FILE_SHARE_READ | FILE_SHARE_WRITE)
 #define GENERIC_VALID_FLAGS (GENERIC_READ | GENERIC_WRITE)
 
+
 using namespace std;
 
 // Boot sector structure
