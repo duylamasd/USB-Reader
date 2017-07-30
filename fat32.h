@@ -6,7 +6,6 @@
 #define FILE_SHARE_VALID_FLAGS (FILE_SHARE_READ | FILE_SHARE_WRITE)
 #define GENERIC_VALID_FLAGS (GENERIC_READ | GENERIC_WRITE)
 
-
 using namespace std;
 
 // Boot sector structure
@@ -68,4 +67,16 @@ typedef struct MAIN_ENTRY {
 	BYTE last_modified_date[2];
 	BYTE low_bytes_first_cluster[2];
 	BYTE sizes[4];
+};
+
+// Long file name entry
+typedef struct LFN_ENTRY {
+	BYTE sequence_number;
+	BYTE name_characters_part0[10];
+	BYTE attributes;
+	BYTE type;
+	BYTE checksum;
+	BYTE name_characters_part1[12];
+	BYTE first_cluster[2];
+	BYTE name_characters_part2[4];
 };
