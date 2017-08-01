@@ -23,7 +23,7 @@ short ReadSect(const wchar_t *_dsk,    // disk to access
 
 short ReadEntry(const wchar_t *_dsk,    // disk to access
 	char *&_buff,         // buffer where entry will be stored
-	unsigned int _byte_offset   // byte number, starting with 0
+	LONGLONG _byte_offset   // byte number, starting with 0
 )
 {
 	DWORD dwRead;
@@ -34,9 +34,11 @@ short ReadEntry(const wchar_t *_dsk,    // disk to access
 		return 1;
 	}
 
-	SetFilePointer(hDisk, _byte_offset, 0, FILE_BEGIN);
+	_LARGE_INTEGER large_byte_offset;
+	large_byte_offset.QuadPart = _byte_offset;
+	SetFilePointerEx(hDisk, large_byte_offset, nullptr, FILE_BEGIN);
 
-	ReadFile(hDisk, _buff, 32, &dwRead, 0);
+	ReadFile(hDisk, _buff, 512, &dwRead, 0);
 	CloseHandle(hDisk);
 	return 0;
 }
@@ -45,6 +47,7 @@ int main() {
 	BS *bs;
 	FS *fs;
 	MAIN_ENTRY *root_entry;
+	unsigned short bytes_per_sector;
 	unsigned int number_of_FAT;
 	unsigned int sectors_per_FAT;
 	unsigned int sectors_per_cluster;
@@ -65,7 +68,8 @@ int main() {
 		OEM_name.resize(8);
 		cout << "OEM name: " << OEM_name << endl;
 
-		cout << "Bytes per sector: " << *(unsigned short*)bs->bytes_per_sector << endl;
+		bytes_per_sector = *(unsigned short*)bs->bytes_per_sector;
+		cout << "Bytes per sector: " << bytes_per_sector << endl;
 
 		sectors_per_cluster = (unsigned int)bs->sectors_per_cluster;
 		cout << "Sectors per cluster: " << sectors_per_cluster << endl;
@@ -117,33 +121,46 @@ int main() {
 	}
 
 	unsigned int first_data_sector = reserved_sectors + (number_of_FAT * sectors_per_FAT);
-
-	read = ReadSect(name.c_str(), buffer, first_data_sector);
-	if (read == 0)
+	long long current_byte = first_data_sector * bytes_per_sector;
+	
+	char *entry = new char[512];
+	short read_entry = ReadEntry(name.c_str(), entry, current_byte);
+	if (read_entry == 0)
 	{
-		root_entry = (MAIN_ENTRY*)buffer;
-		string disk_name((char*)root_entry->short_name);
+		root_entry = (MAIN_ENTRY*)entry;
+		string disk_name((char*)(root_entry->short_name));
 		disk_name.resize(12);
 		cout << "Disk name: " << disk_name << endl;
+	}
 
-		int i = 1;
-		while (buffer[i * 32] != 00)
+	current_byte += 96;
+	read_entry = ReadEntry(name.c_str(), entry, current_byte);
+	MAIN_ENTRY *sys_entry = (MAIN_ENTRY*)entry;
+	string sys_name((char*)sys_entry->short_name);
+	sys_name.resize(8);
+	cout << "SYS: " << sys_name << endl;
+
+	/*while (read_entry == 0 && entry[0] != 0x00)
+	{
+		read_entry = ReadEntry(name.c_str(), entry, current_byte);
+		if (entry[11] != 0x0F)
 		{
-			if (buffer[i * 32 + 11] != 0x0F)
+			MAIN_ENTRY *file_main_entry = (MAIN_ENTRY*)entry;
+			string file_name((char*)file_main_entry->short_name);
+			file_name.resize(8);
+			cout << "Short file name: " << file_name << endl;
+
+			unsigned long lfn_current_byte = current_byte - 32;
+			char *lfn_buffer = new char[512];
+			short read_lfn = ReadEntry(name.c_str(), lfn_buffer, lfn_current_byte);
+			if (read_lfn == 0)
 			{
-				MAIN_ENTRY *entry = (MAIN_ENTRY*)&buffer[i * 32];
-
-				string file_name((char*)entry->short_name);
-				file_name.resize(8);
-				cout << "Short file name: " << file_name << endl;
-
-				int j = i - 1;
-				if (buffer[j * 32 + 11] == 0x0F)
+				if (lfn_buffer[11] == 0x0F)
 				{
 					wstring long_file_name = L"";
-					while (buffer[j * 32 + 11] == 0x0F)
+					while (lfn_buffer[11] == 0x0F)
 					{
-						LFN_ENTRY *lfn_entry = (LFN_ENTRY*)&buffer[j * 32];
+						LFN_ENTRY *lfn_entry = (LFN_ENTRY*)lfn_buffer;
 						wstring name_part;
 						name_part = wstring((wchar_t*)lfn_entry->name_characters_part0);
 						name_part.resize(5);
@@ -157,39 +174,40 @@ int main() {
 						name_part.resize(2);
 						long_file_name += name_part;
 
-						j--;
+						lfn_current_byte -= 32;
 					}
+
 					cout << "Long file name: ";
 					wcout << long_file_name << endl;
 				}
-
-				char file_attributes = (char)entry->attributes;
-				if ((file_attributes >> 4) % 2 == 1)
-				{
-					cout << "File type: Folder" << endl;
-				}
-				else
-				{
-					string extension((char*)entry->short_extension);
-					extension.resize(3);
-					cout << "File type: " << extension << endl;
-				}
-
-				BYTE first_cluster[4];
-				first_cluster[0] = entry->low_bytes_first_cluster[0];
-				first_cluster[1] = entry->low_bytes_first_cluster[1];
-				first_cluster[2] = entry->high_bytes_first_cluster[0];
-				first_cluster[3] = entry->high_bytes_first_cluster[1];
-				unsigned int first_cluster_value = *(unsigned int*)first_cluster;
-				cout << "First data cluster: " << first_cluster_value << endl;
-
-				unsigned int file_size = *(unsigned int*)entry->sizes;
-				cout << "File size: " << file_size << endl;
 			}
 
-			i++;
+			char file_attributes = (char)file_main_entry->attributes;
+			if ((file_attributes >> 4) % 2 == 1)
+			{
+				cout << "File type: Folder" << endl;
+			}
+			else
+			{
+				string extension((char*)file_main_entry->short_extension);
+				extension.resize(3);
+				cout << "File type: " << extension << endl;
+			}
+
+			BYTE first_cluster[4];
+			first_cluster[0] = file_main_entry->low_bytes_first_cluster[0];
+			first_cluster[1] = file_main_entry->low_bytes_first_cluster[1];
+			first_cluster[2] = file_main_entry->high_bytes_first_cluster[0];
+			first_cluster[3] = file_main_entry->high_bytes_first_cluster[1];
+			unsigned int first_cluster_value = *(unsigned int*)first_cluster;
+			cout << "First data cluster: " << first_cluster_value << endl;
+
+			unsigned int file_size = *(unsigned int*)file_main_entry->sizes;
+			cout << "File size: " << file_size << endl;
 		}
-	}
+
+		current_byte += 32;
+	}*/
 
 	system("pause");
 
