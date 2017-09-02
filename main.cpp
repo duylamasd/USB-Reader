@@ -36,7 +36,12 @@ short ReadEntry(const wchar_t *_dsk,    // disk to access
 
 	_LARGE_INTEGER large_byte_offset;
 	large_byte_offset.QuadPart = _byte_offset;
-	SetFilePointerEx(hDisk, large_byte_offset, nullptr, FILE_BEGIN);
+	cout << large_byte_offset.HighPart << endl;
+	cout << large_byte_offset.LowPart << endl;
+	int set = SetFilePointer(hDisk, large_byte_offset.LowPart, &large_byte_offset.HighPart, FILE_BEGIN);
+
+	if (set == INVALID_SET_FILE_POINTER)
+		cout << "INVALID SET FILE POINTER" << endl;
 
 	ReadFile(hDisk, _buff, 512, &dwRead, 0);
 	CloseHandle(hDisk);
